@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\General\PaginationRequest;
 use App\Models\RiderProfile;
+use App\Models\Order;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,6 +22,20 @@ class RiderController extends Controller
             ->with('riderProfile')
             ->orderBy('name')
             ->paginate($request->perPage(15));
+
+        $busyIds = Order::query()
+            ->whereNotNull('rider_id')
+            ->whereNotIn('status', [Order::STATUS_COMPLETED, Order::STATUS_CANCELLED])
+            ->pluck('rider_id')
+            ->all();
+
+        $riders->getCollection()->transform(function (User $rider) use ($busyIds) {
+            $rider->setAttribute('availability_status', in_array($rider->id, $busyIds, true)
+                ? 'on_delivery'
+                : ($rider->riderProfile?->is_active ? 'available' : 'not_available'));
+
+            return $rider;
+        });
 
         return $this->paginated($riders);
     }
@@ -45,5 +60,32 @@ class RiderController extends Controller
         $profile = RiderProfile::updateOrCreate(['user_id' => $user->id], $data);
 
         return response()->json(['data' => $profile]);
+    }
+
+    public function approveDuty(User $user): JsonResponse
+    {
+        if ($user->role !== User::ROLE_RIDER) {
+            return response()->json(['message' => 'The selected user is not a rider.'], 422);
+        }
+
+        $profile = $user->riderProfile;
+        if ($profile === null || $profile->duty_requested_at === null) {
+            return response()->json(['message' => 'This rider has no pending duty QR request.'], 422);
+        }
+
+        $busy = Order::query()
+            ->where('rider_id', $user->id)
+            ->whereNotIn('status', [Order::STATUS_COMPLETED, Order::STATUS_CANCELLED])
+            ->exists();
+        if ($busy) {
+            return response()->json(['message' => 'This rider already has an active delivery.'], 422);
+        }
+
+        $profile->update(['is_active' => true, 'duty_requested_at' => null]);
+
+        $fresh = $profile->fresh();
+        $fresh->setAttribute('availability_status', 'available');
+
+        return response()->json(['data' => $fresh]);
     }
 }

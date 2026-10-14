@@ -9,6 +9,7 @@ use App\Services\PointLedger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 
 /**
@@ -59,12 +60,57 @@ class RiderDeliveryController extends Controller
             'is_available' => ['required', 'boolean'],
         ]);
 
+        if ($data['is_available']) {
+            return response()->json(['message' => 'Send a duty QR request and wait for staff approval.'], 422);
+        }
+
+        if ($this->hasActiveDelivery($request->user()->id)) {
+            return response()->json(['message' => 'Finish the assigned delivery before going off duty.'], 422);
+        }
+
         $profile = RiderProfile::updateOrCreate(
             ['user_id' => $request->user()->id],
-            ['is_active' => $data['is_available']],
+            ['is_active' => false, 'duty_requested_at' => null],
         );
 
         return response()->json(['data' => $profile]);
+    }
+
+    public function requestDuty(Request $request): JsonResponse
+    {
+        if ($this->hasActiveDelivery($request->user()->id)) {
+            return response()->json(['message' => 'Finish the assigned delivery before requesting duty activation.'], 422);
+        }
+
+        $profile = RiderProfile::updateOrCreate(
+            ['user_id' => $request->user()->id],
+            ['is_active' => false, 'duty_requested_at' => now()],
+        );
+
+        return response()->json(['data' => $this->withAvailabilityStatus($profile)]);
+    }
+
+    public function storeProof(Request $request, int $order): JsonResponse
+    {
+        $data = $request->validate([
+            'image' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:5120', 'dimensions:min_width=128,min_height=128,max_width=6000,max_height=6000'],
+        ]);
+
+        $record = Order::query()
+            ->where('id', $order)
+            ->where('rider_id', $request->user()->id)
+            ->where('status', Order::STATUS_OUT_FOR_DELIVERY)
+            ->firstOrFail();
+
+        $oldPath = $record->delivery_proof_path;
+        $newPath = $data['image']->store('uploads/images/delivery-proofs', 'public');
+        $record->update(['delivery_proof_path' => $newPath]);
+
+        if ($oldPath) {
+            Storage::disk('public')->delete($oldPath);
+        }
+
+        return response()->json(['data' => $record->fresh()]);
     }
 
     public function updateStatus(Request $request, int $order): JsonResponse
@@ -92,6 +138,10 @@ class RiderDeliveryController extends Controller
             $updates = ['status' => $data['status']];
 
             if ($data['status'] === Order::STATUS_COMPLETED) {
+                if (! $record->delivery_proof_path) {
+                    return response()->json(['message' => 'Take a delivery proof photo before completing the order.'], 422);
+                }
+
                 if ($record->payment_method === 'gcash' && $record->payment_status !== Order::PAYMENT_PAID) {
                     return response()->json(['message' => 'GCash payment has not been confirmed.'], 422);
                 }
@@ -145,7 +195,7 @@ class RiderDeliveryController extends Controller
             ]);
         }
 
-        return response()->json(['data' => $profile]);
+        return response()->json(['data' => $this->withAvailabilityStatus($profile)]);
     }
 
     /**
@@ -165,5 +215,22 @@ class RiderDeliveryController extends Controller
         );
 
         return response()->json(['data' => $profile]);
+    }
+
+    private function hasActiveDelivery(int $riderId): bool
+    {
+        return Order::query()
+            ->where('rider_id', $riderId)
+            ->whereNotIn('status', [Order::STATUS_COMPLETED, Order::STATUS_CANCELLED])
+            ->exists();
+    }
+
+    private function withAvailabilityStatus(RiderProfile $profile): RiderProfile
+    {
+        $profile->setAttribute('availability_status', $this->hasActiveDelivery($profile->user_id)
+            ? 'on_delivery'
+            : ($profile->is_active ? 'available' : 'not_available'));
+
+        return $profile;
     }
 }

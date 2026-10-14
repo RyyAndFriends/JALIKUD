@@ -1,4 +1,4 @@
-import { apiRequest } from '@/lib/api';
+import { apiRequest, uploadRequest } from '@/lib/api';
 
 export type OrderStatus =
   | 'pending'
@@ -48,17 +48,29 @@ export type StaffOrder = {
   address?: OrderAddress | null;
   rider?: { id: number; name: string; phone: string | null } | null;
   order_items?: OrderItemLine[];
+  delivery_proof_path?: string | null;
 };
 
 export type StaffRider = {
   id: number;
   name: string;
   phone: string | null;
+  availability_status?: 'available' | 'on_delivery' | 'not_available';
   rider_profile?: {
     vehicle_type: string | null;
     plate_number: string | null;
     is_active: boolean;
+    duty_requested_at?: string | null;
   } | null;
+};
+
+export type RiderProfile = {
+  user_id: number;
+  vehicle_type: string | null;
+  plate_number: string | null;
+  is_active: boolean;
+  duty_requested_at: string | null;
+  availability_status: 'available' | 'on_delivery' | 'not_available';
 };
 
 export type StaffMenuItem = {
@@ -117,6 +129,8 @@ export const staffApi = {
     }).then((response) => response.data),
   riders: (token: string) =>
     apiRequest<DataResponse<Paginated<StaffRider>>>('/admin/riders?per_page=100', { token }).then(list),
+  approveRiderDuty: (token: string, riderId: number) =>
+    apiRequest<DataResponse<RiderProfile>>(`/admin/riders/${riderId}/approve-duty`, { token, method: 'POST' }).then((response) => response.data),
   menu: () =>
     apiRequest<DataResponse<Paginated<StaffMenuItem>>>('/menu?per_page=100').then(list),
   categories: () =>
@@ -138,6 +152,18 @@ export const riderApi = {
       method: 'PUT',
       body: { status, ...(note ? { note } : {}) },
     }).then((response) => response.data),
+  uploadProof: (token: string, id: number, uri: string) => {
+    const name = uri.split('/').pop() || `delivery-${id}.jpg`;
+    const extension = name.split('.').pop()?.toLowerCase();
+    const type = extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : 'image/jpeg';
+    const form = new FormData();
+    form.append('image', { uri, name, type } as unknown as Blob);
+    return uploadRequest<DataResponse<StaffOrder>>(`/rider/deliveries/${id}/proof`, token, form).then((response) => response.data);
+  },
+  profile: (token: string) =>
+    apiRequest<DataResponse<RiderProfile>>('/rider/profile', { token }).then((response) => response.data),
+  requestDuty: (token: string) =>
+    apiRequest<DataResponse<RiderProfile>>('/rider/duty-request', { token, method: 'POST' }).then((response) => response.data),
   setAvailability: (token: string, isAvailable: boolean) =>
     apiRequest<DataResponse<{ is_active: boolean }>>('/rider/availability', {
       token,

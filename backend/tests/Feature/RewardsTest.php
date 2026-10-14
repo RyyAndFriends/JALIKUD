@@ -126,6 +126,7 @@ class RewardsTest extends TestCase
             'payment_status' => Order::PAYMENT_UNPAID,
             'subtotal' => 250,
             'total_amount' => 250,
+            'delivery_proof_path' => 'uploads/images/delivery-proofs/proof.jpg',
         ]);
 
         Sanctum::actingAs($rider);

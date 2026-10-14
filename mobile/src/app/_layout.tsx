@@ -13,7 +13,6 @@ import { useColorScheme } from 'react-native';
 import { SplashOverlay } from '@/components/splash-overlay';
 import { AuthProvider, routeForRole, useAuth } from '@/context/auth-context';
 import { CustomerOrderProvider } from '@/context/customer-order-context';
-import { DeliveryDemoProvider } from '@/context/delivery-demo-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 // Preventing auto-hide can reject (e.g. version/Go mismatch). A rejection
@@ -54,18 +53,16 @@ export default function RootLayout() {
         <AuthProvider>
           <AuthRouter />
           <CustomerOrderProvider>
-            <DeliveryDemoProvider>
-              <SplashOverlay />
-              <Stack screenOptions={{ headerShown: false }} initialRouteName="login">
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="staff" />
-                <Stack.Screen name="rider" />
-                <Stack.Screen name="login" />
-                <Stack.Screen name="register" />
-                <Stack.Screen name="account" />
-                <Stack.Screen name="addresses" />
-              </Stack>
-            </DeliveryDemoProvider>
+            <SplashOverlay />
+            <Stack screenOptions={{ headerShown: false }} initialRouteName="login">
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="staff" />
+              <Stack.Screen name="rider" />
+              <Stack.Screen name="login" />
+              <Stack.Screen name="register" />
+              <Stack.Screen name="account" />
+              <Stack.Screen name="addresses" />
+            </Stack>
           </CustomerOrderProvider>
         </AuthProvider>
       </ThemeProvider>

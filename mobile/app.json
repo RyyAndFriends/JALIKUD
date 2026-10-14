@@ -33,6 +33,14 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 160
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": false,
+          "cameraPermission": "Allow Jalikud to take a delivery proof photo.",
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {

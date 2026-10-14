@@ -43,6 +43,7 @@ class Order extends Model
         'notes',
         'scheduled_for',
         'placed_at',
+        'delivery_proof_path',
     ];
 
     protected function casts(): array

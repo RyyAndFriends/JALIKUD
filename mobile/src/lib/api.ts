@@ -25,10 +25,15 @@ function isLaravelError(payload: unknown): payload is LaravelErrorResponse {
 }
 
 function endpoint(path: string): string {
-  if (!API_URL) {
-    throw new Error('EXPO_PUBLIC_API_URL is not configured. Add it to mobile/.env.');
-  }
+  if (!API_URL) throw new Error('EXPO_PUBLIC_API_URL is not configured. Add it to mobile/.env.');
   return `${API_URL}/${path.replace(/^\/+/, '')}`;
+}
+
+async function parseResponse(response: Response): Promise<unknown> {
+  const text = await response.text();
+  if (!text) return undefined;
+  try { return JSON.parse(text) as unknown; }
+  catch { return text; }
 }
 
 /**
@@ -42,17 +47,6 @@ export function assetUrl(path: string | null | undefined): string | null {
   if (!API_URL) return path;
   const origin = API_URL.replace(/\/api\/?$/, '');
   return `${origin}/${path.replace(/^\/+/, '')}`;
-}
-
-async function parseResponse(response: Response): Promise<unknown> {
-  const text = await response.text();
-  if (!text) return undefined;
-
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    return text;
-  }
 }
 
 export interface ApiRequestOptions extends Omit<RequestInit, 'body' | 'headers'> {
@@ -74,23 +68,28 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   const payload = await parseResponse(response);
-
   if (!response.ok) throw new ApiError(response.status, payload);
   return payload as T;
 }
 
-/**
- * POST to a Server-Sent Events endpoint and invoke `onEvent` for each parsed
- * `data:` event. Uses expo/fetch (WinterCG-compliant), which exposes a streaming
- * `response.body` on Android and iOS so tokens can be read as they arrive.
- */
+export async function uploadRequest<T>(path: string, token: string, formData: FormData): Promise<T> {
+  const response = await fetch(endpoint(path), {
+    method: 'POST',
+    headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  const payload = await parseResponse(response);
+  if (!response.ok) throw new ApiError(response.status, payload);
+  return payload as T;
+}
+
+/** POST to a Server-Sent Events endpoint and emit each parsed `data:` event. */
 export async function streamRequest(
   path: string,
   onEvent: (event: unknown) => void,
   options: ApiRequestOptions = {},
 ): Promise<void> {
   const { token, body, headers, ...init } = options;
-
   const response = await streamFetch(endpoint(path), {
     ...init,
     method: 'POST',
@@ -102,59 +101,35 @@ export async function streamRequest(
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
-
-  if (!response.ok) {
-    const payload = await parseResponse(response as unknown as Response);
-    throw new ApiError(response.status, payload);
-  }
-
-  if (!response.body) {
-    throw new Error('Streaming responses are not supported by this runtime.');
-  }
-
+  if (!response.ok) throw new ApiError(response.status, await parseResponse(response as unknown as Response));
+  if (!response.body) throw new Error('Streaming responses are not supported by this runtime.');
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-
   const consume = () => {
     while (true) {
       const boundary = buffer.indexOf('\n\n');
       if (boundary === -1) return;
-
       const raw = buffer.slice(0, boundary);
       buffer = buffer.slice(boundary + 2);
-
       for (const line of raw.split('\n')) {
         if (!line.startsWith('data:')) continue;
         const data = line.slice(5).trim();
         if (!data) continue;
-
-        try {
-          onEvent(JSON.parse(data));
-        } catch {
-          // Ignore malformed events.
-        }
+        try { onEvent(JSON.parse(data)); } catch { /* Ignore malformed events. */ }
       }
     }
   };
-
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-
-      if (value) {
-        buffer += decoder.decode(value, { stream: true });
-      }
-
+      if (value) buffer += decoder.decode(value, { stream: true });
       consume();
     }
-
     buffer += decoder.decode();
     consume();
-  } finally {
-    reader.releaseLock();
-  }
+  } finally { reader.releaseLock(); }
 }
 
 export function isApiError(error: unknown): error is ApiError {

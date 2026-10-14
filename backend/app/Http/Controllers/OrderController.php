@@ -465,6 +465,16 @@ class OrderController extends Controller
             if ($profile === null || ! $profile->is_active) {
                 return response()->json(['message' => 'Selected rider is not on duty.'], 422);
             }
+
+            $alreadyAssigned = Order::query()
+                ->where('rider_id', $data['rider_id'])
+                ->whereKeyNot($order->id)
+                ->whereNotIn('status', [Order::STATUS_COMPLETED, Order::STATUS_CANCELLED])
+                ->exists();
+
+            if ($alreadyAssigned) {
+                return response()->json(['message' => 'Selected rider is already on a delivery.'], 422);
+            }
         }
 
         $order->update([

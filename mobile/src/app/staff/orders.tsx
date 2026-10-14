@@ -239,7 +239,7 @@ export default function StaffOrdersScreen() {
           meta: [rider.rider_profile?.vehicle_type, rider.rider_profile?.plate_number]
             .filter(Boolean)
             .join(' · ') || rider.phone || 'No vehicle on file',
-          onDuty: rider.rider_profile?.is_active === true,
+          onDuty: rider.availability_status === 'available',
         })),
       );
     } catch (caught) {
@@ -448,8 +448,8 @@ export default function StaffOrdersScreen() {
             <Text style={styles.modalTitle}>Assign rider · {assigningOrder?.order_number}</Text>
             <Text style={styles.modalSubtitle}>
               {availableRiders.length
-                ? 'Pick an On Duty rider. They will see the delivery in their app.'
-                : 'No riders are On Duty right now.'}
+                ? 'Pick an Available rider. They will see the delivery in their app.'
+                : 'No riders are Available right now.'}
             </Text>
             <View style={styles.reasonList}>
               {riders.map((rider) => {
@@ -466,7 +466,7 @@ export default function StaffOrdersScreen() {
                       <Text style={styles.riderMeta}>{rider.meta}</Text>
                     </View>
                     <View style={[styles.riderStatusChip, rider.onDuty && styles.riderStatusAvailable]}>
-                      <Text style={styles.riderStatusText}>{rider.onDuty ? 'On Duty' : 'Off Duty'}</Text>
+                      <Text style={styles.riderStatusText}>{rider.onDuty ? 'Available' : 'Not Available'}</Text>
                     </View>
                   </Pressable>
                 );

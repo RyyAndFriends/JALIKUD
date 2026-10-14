@@ -10,15 +10,17 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import DeliverySchematicMap from '@/components/delivery-schematic-map';
 
 import { BottomTabInset } from '@/constants/theme';
 import { useAuth } from '@/context/auth-context';
-import { errorMessage } from '@/lib/api';
-import { riderApi, type StaffOrder } from '@/lib/staff-api';
+import { assetUrl, errorMessage } from '@/lib/api';
+import { riderApi, type RiderProfile, type StaffOrder } from '@/lib/staff-api';
 
 const RED = '#DC2626';
 const BG = '#F4F4F6';
@@ -48,6 +50,7 @@ type LiveDelivery = {
   phase: DeliveryPhase;
   assignedAt: string;
   placedAt: string;
+  proofUri: string | null;
 };
 
 /** Interpolated waypoints (with a gentle curve) for the rider's route. */
@@ -104,6 +107,7 @@ function toDelivery(order: StaffOrder): LiveDelivery | null {
     phase,
     assignedAt: order.assigned_at ? formatDate(order.assigned_at) : formatDate(order.placed_at),
     placedAt: order.placed_at,
+    proofUri: assetUrl(order.delivery_proof_path ? `/storage/${order.delivery_proof_path}` : null),
   };
 }
 
@@ -149,12 +153,16 @@ function DeliveryMapModal({
   delivery: LiveDelivery;
   busy: boolean;
   onPickUp: () => void;
-  onComplete: () => void;
+  onComplete: (proofUri: string) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [route] = useState<LatLng[]>(() => buildRoute(delivery.store, delivery.destination));
   const [progress, setProgress] = useState(delivery.phase === 'picked_up' ? 0.35 : 0.1);
   const [moving, setMoving] = useState(false);
+  const [proofOpen, setProofOpen] = useState(false);
+  const [proofUri, setProofUri] = useState<string | null>(null);
+  const [proofError, setProofError] = useState('');
+  const [capturing, setCapturing] = useState(false);
 
   useEffect(() => {
     if (!moving) return;
@@ -165,6 +173,45 @@ function DeliveryMapModal({
   }, [moving]);
 
   const position = route[Math.floor(progress * (route.length - 1))];
+
+  const takeProofPhoto = async () => {
+    if (capturing || busy) return;
+    setCapturing(true);
+    setProofError('');
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        setProofError(permission.canAskAgain
+          ? 'Camera permission is required to take delivery proof.'
+          : 'Enable camera permission in your device settings to continue.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        cameraType: ImagePicker.CameraType.back,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.7,
+      });
+      if (!result.canceled) setProofUri(result.assets[0].uri);
+    } catch (caught) {
+      setProofError(errorMessage(caught, 'Could not open the camera.'));
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  const closeProof = () => {
+    if (capturing || busy) return;
+    setProofOpen(false);
+    setProofUri(null);
+    setProofError('');
+  };
+
+  const submitProof = async () => {
+    if (!proofUri || busy) return;
+    if (await onComplete(proofUri)) closeProof();
+  };
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
@@ -217,7 +264,7 @@ function DeliveryMapModal({
               accessibilityRole="button"
               accessibilityLabel={delivery.paymentMethod === 'cod' ? 'Complete delivery and confirm cash received' : 'Complete delivery'}
               disabled={busy}
-              onPress={onComplete}
+              onPress={() => setProofOpen(true)}
               style={({ pressed }) => [styles.completeButton, pressed && styles.pressed]}>
               {busy ? (
                 <ActivityIndicator color="#FFFFFF" />
@@ -244,6 +291,51 @@ function DeliveryMapModal({
             <Text style={styles.mapHint}>Pick up the order from the store first, then start delivery.</Text>
           )}
         </View>
+
+        {proofOpen && (
+          <View style={styles.proofBackdrop}>
+            <Pressable accessibilityLabel="Close delivery proof" style={StyleSheet.absoluteFill} onPress={closeProof} />
+            <View style={styles.proofSheet}>
+              <View style={styles.proofHandle} />
+              <Text style={styles.proofTitle}>Delivery picture proof</Text>
+              <Text style={styles.proofHint}>Take a new photo showing that the order was delivered. Gallery photos are not allowed.</Text>
+
+              {proofUri ? (
+                <Image accessibilityLabel="Delivery proof preview" source={{ uri: proofUri }} contentFit="cover" style={styles.proofImage} />
+              ) : (
+                <View style={styles.proofPlaceholder}>
+                  <Text style={styles.proofPlaceholderIcon}>📷</Text>
+                  <Text style={styles.proofPlaceholderText}>No proof photo yet</Text>
+                </View>
+              )}
+
+              {!!proofError && <Text style={styles.proofError}>⚠ {proofError}</Text>}
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={proofUri ? 'Retake delivery proof photo' : 'Take delivery proof photo'}
+                disabled={capturing || busy}
+                onPress={() => void takeProofPhoto()}
+                style={({ pressed }) => [styles.cameraButton, (capturing || busy) && styles.buttonDisabled, pressed && styles.pressed]}>
+                {capturing ? <ActivityIndicator color={RED} /> : <Text style={styles.cameraButtonText}>{proofUri ? '📷 Retake Photo' : '📷 Take Photo'}</Text>}
+              </Pressable>
+
+              <View style={styles.proofActions}>
+                <Pressable disabled={capturing || busy} onPress={closeProof} style={styles.proofCancelButton}>
+                  <Text style={styles.proofCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Submit delivery proof and complete order"
+                  disabled={!proofUri || busy || capturing}
+                  onPress={() => void submitProof()}
+                  style={[styles.proofSubmitButton, (!proofUri || busy || capturing) && styles.buttonDisabled]}>
+                  {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.proofSubmitText}>Submit &amp; Complete</Text>}
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        )}
       </View>
     </Modal>
   );
@@ -251,8 +343,9 @@ function DeliveryMapModal({
 
 export default function RiderDeliveriesScreen() {
   const { token, user } = useAuth();
+  const router = useRouter();
   const [deliveries, setDeliveries] = useState<LiveDelivery[]>([]);
-  const [onDuty, setOnDuty] = useState(true);
+  const [profile, setProfile] = useState<RiderProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -265,8 +358,9 @@ export default function RiderDeliveriesScreen() {
     if (!token) return;
     setError('');
     try {
-      const queue = await riderApi.deliveries(token);
+      const [queue, liveProfile] = await Promise.all([riderApi.deliveries(token), riderApi.profile(token)]);
       setDeliveries(queue.map(toDelivery).filter((d): d is LiveDelivery => d !== null));
+      setProfile(liveProfile);
     } catch (caught) {
       setError(errorMessage(caught, 'Could not load your deliveries.'));
     } finally {
@@ -284,36 +378,47 @@ export default function RiderDeliveriesScreen() {
   const active = [...deliveries].reverse().find((delivery) => delivery.phase !== 'delivered') ?? null;
   const history = deliveries.filter((delivery) => delivery.phase === 'delivered');
 
-  const advance = async (delivery: LiveDelivery, next: 'out_for_delivery' | 'completed') => {
-    if (!token || busyId !== null) return;
+  const advance = async (delivery: LiveDelivery, next: 'out_for_delivery' | 'completed', proofUri?: string): Promise<boolean> => {
+    if (!token || busyId !== null) return false;
     setBusyId(delivery.id);
     setError('');
     try {
+      if (next === 'completed' && proofUri) await riderApi.uploadProof(token, delivery.id, proofUri);
       const updated = await riderApi.updateStatus(token, delivery.id, next);
       const mapped = toDelivery(updated);
       setDeliveries((previous) =>
         previous.map((row) => (row.id === delivery.id && mapped ? mapped : row)),
       );
-      if (next === 'completed') setShowMap(false);
+      if (next === 'completed') {
+        setProfile((current) => current ? { ...current, is_active: true, availability_status: 'available' } : current);
+        setShowMap(false);
+      }
+      return true;
     } catch (caught) {
       setError(errorMessage(caught, 'Could not update the delivery.'));
+      return false;
     } finally {
       setBusyId(null);
     }
   };
 
-  const toggleDuty = (next: boolean) => {
+  const toggleAvailability = (next: boolean) => {
     if (!token || togglingDuty || (active && next === false)) return;
+    if (next) {
+      if (profile?.availability_status !== 'available') router.push('/rider/settings');
+      return;
+    }
     setTogglingDuty(true);
     riderApi
       .setAvailability(token, next)
-      .then((profile) => setOnDuty(profile.is_active))
-      .catch((caught) => setError(errorMessage(caught, 'Could not update duty status.')))
+      .then((updated) => setProfile((current) => current ? { ...current, ...updated, availability_status: 'not_available' } : current))
+      .catch((caught) => setError(errorMessage(caught, 'Could not update availability.')))
       .finally(() => setTogglingDuty(false));
   };
 
   const startMoving = () => setMoving(true);
-  const onDelivery = active?.phase === 'picked_up';
+  const onDelivery = active !== null;
+  const available = !onDelivery && profile?.availability_status === 'available';
 
   return (
     <View style={styles.container}>
@@ -342,53 +447,55 @@ export default function RiderDeliveriesScreen() {
           <View style={styles.availabilityHeader}>
             <View>
               <Text style={styles.availabilityEyebrow}>AVAILABILITY</Text>
-              <Text style={styles.availabilityTitle}>Choose your duty status</Text>
+              <Text style={styles.availabilityTitle}>Choose your availability</Text>
             </View>
             <View
               style={[
                 styles.currentStatus,
-                onDuty && styles.currentStatusOnDuty,
+                available && styles.currentStatusOnDuty,
                 onDelivery && styles.currentStatusOnDelivery,
               ]}>
               <Text style={styles.currentStatusText}>
-                {onDelivery ? 'On Delivery' : onDuty ? 'On Duty' : 'Unavailable'}
+                {onDelivery ? 'On Delivery' : available ? 'Available' : 'Not Available'}
               </Text>
             </View>
           </View>
           <Text style={styles.availabilityHint}>
             {onDelivery
               ? 'Finish your active delivery before changing availability.'
-              : 'Only On Duty riders receive delivery assignments from staff.'}
+              : available
+                ? 'You are ready to receive a delivery assignment from staff.'
+                : 'Tap Available to send your duty QR from Settings.'}
           </Text>
           <View style={styles.availabilityActions}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Set rider status to On Duty"
+              accessibilityLabel="Set rider status to Available"
               disabled={!!onDelivery || togglingDuty}
-              onPress={() => toggleDuty(true)}
+              onPress={() => toggleAvailability(true)}
               style={({ pressed }) => [
                 styles.availabilityButton,
-                onDuty && styles.onDutyButton,
+                available && styles.onDutyButton,
                 !!onDelivery && styles.availabilityButtonDisabled,
                 pressed && styles.pressed,
               ]}>
-              <Text style={[styles.availabilityButtonText, onDuty && styles.availabilityButtonTextActive]}>
-                On Duty
+              <Text style={[styles.availabilityButtonText, available && styles.availabilityButtonTextActive]}>
+                Available
               </Text>
             </Pressable>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Set rider status to Unavailable"
+              accessibilityLabel="Set rider status to Not Available"
               disabled={!!onDelivery || togglingDuty}
-              onPress={() => toggleDuty(false)}
+              onPress={() => toggleAvailability(false)}
               style={({ pressed }) => [
                 styles.availabilityButton,
-                !onDuty && styles.unavailableButton,
+                !available && !onDelivery && styles.unavailableButton,
                 !!onDelivery && styles.availabilityButtonDisabled,
                 pressed && styles.pressed,
               ]}>
-              <Text style={[styles.availabilityButtonText, !onDuty && styles.availabilityButtonTextActive]}>
-                Unavailable
+              <Text style={[styles.availabilityButtonText, !available && !onDelivery && styles.availabilityButtonTextActive]}>
+                Not Available
               </Text>
             </Pressable>
           </View>
@@ -484,6 +591,7 @@ export default function RiderDeliveriesScreen() {
                   <Text style={styles.historyOrder}>{delivery.orderNumber} · {delivery.customer}</Text>
                   <Text style={styles.historyMeta}>
                     {delivery.paymentMethod === 'cod' ? `COD collected ${peso(delivery.amount)}` : 'GCash Paid'}
+                    {delivery.proofUri ? ' · Photo proof ✓' : ''}
                   </Text>
                 </View>
               </View>
@@ -497,7 +605,7 @@ export default function RiderDeliveriesScreen() {
           delivery={active}
           busy={busyId === active.id}
           onPickUp={() => void advance(active, 'out_for_delivery')}
-          onComplete={() => void advance(active, 'completed')}
+          onComplete={(proofUri) => advance(active, 'completed', proofUri)}
           onClose={() => setShowMap(false)}
         />
       )}
@@ -599,5 +707,23 @@ const styles = StyleSheet.create({
   completeButton: { marginTop: 13, alignItems: 'center', paddingVertical: 14, borderRadius: 12, backgroundColor: GREEN },
   completeButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
   mapHint: { marginTop: 13, color: GRAY, fontSize: 11, textAlign: 'center' },
+  proofBackdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 10, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+  proofSheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 18, paddingTop: 10, paddingBottom: 28 },
+  proofHandle: { alignSelf: 'center', width: 42, height: 4, borderRadius: 2, backgroundColor: '#D1D1D6', marginBottom: 16 },
+  proofTitle: { color: TEXT, fontSize: 20, fontWeight: '900' },
+  proofHint: { color: GRAY, fontSize: 12, lineHeight: 17, marginTop: 4, marginBottom: 14 },
+  proofImage: { width: '100%', height: 210, borderRadius: 14, backgroundColor: '#F3F4F6' },
+  proofPlaceholder: { height: 180, borderRadius: 14, borderWidth: 1, borderStyle: 'dashed', borderColor: '#D1D5DB', backgroundColor: '#F9FAFB', alignItems: 'center', justifyContent: 'center' },
+  proofPlaceholderIcon: { fontSize: 40 },
+  proofPlaceholderText: { color: GRAY, fontSize: 12, fontWeight: '700', marginTop: 7 },
+  proofError: { color: '#B91C1C', fontSize: 11, fontWeight: '700', marginTop: 10 },
+  cameraButton: { alignItems: 'center', borderWidth: 1, borderColor: '#F0A5A5', borderRadius: 11, paddingVertical: 12, marginTop: 12 },
+  cameraButtonText: { color: RED, fontSize: 12, fontWeight: '900' },
+  proofActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  proofCancelButton: { flex: 1, alignItems: 'center', borderRadius: 11, backgroundColor: '#EEEEF1', paddingVertical: 13 },
+  proofCancelText: { color: TEXT, fontSize: 12, fontWeight: '800' },
+  proofSubmitButton: { flex: 2, alignItems: 'center', borderRadius: 11, backgroundColor: GREEN, paddingVertical: 13 },
+  proofSubmitText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
+  buttonDisabled: { opacity: 0.45 },
   pressed: { opacity: 0.72 },
 });
