@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,6 +22,7 @@ type RoleSettingsScreenProps = {
   roleLabel: string;
   roleIcon: string;
   details?: Detail[];
+  children?: ReactNode;
 };
 
 const SUPPORT_ROWS = [
@@ -30,7 +31,7 @@ const SUPPORT_ROWS = [
   { icon: '📞', label: 'Contact Us' },
 ];
 
-export function RoleSettingsScreen({ roleLabel, roleIcon, details = [] }: RoleSettingsScreenProps) {
+export function RoleSettingsScreen({ roleLabel, roleIcon, details = [], children }: RoleSettingsScreenProps) {
   const router = useRouter();
   const { current, signOut } = useAuthDemo();
   const [pushNotifications, setPushNotifications] = useState(true);
@@ -77,6 +78,8 @@ export function RoleSettingsScreen({ roleLabel, roleIcon, details = [] }: RoleSe
             </View>
           ))}
         </View>
+
+        {children}
 
         <Text style={styles.sectionTitle}>PREFERENCES</Text>
         <View style={styles.card}>

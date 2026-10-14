@@ -13,12 +13,14 @@ class RiderProfile extends Model
         'vehicle_type',
         'plate_number',
         'is_active',
+        'duty_requested_at',
     ];
 
     protected function casts(): array
     {
         return [
             'is_active' => 'boolean',
+            'duty_requested_at' => 'datetime',
         ];
     }
 

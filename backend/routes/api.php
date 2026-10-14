@@ -80,6 +80,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('/deliveries/{order}', [RiderDeliveryController::class, 'show']);
             Route::put('/deliveries/{order}/status', [RiderDeliveryController::class, 'updateStatus']);
             Route::put('/availability', [RiderDeliveryController::class, 'updateAvailability']);
+            Route::post('/duty-request', [RiderDeliveryController::class, 'requestDuty']);
+            Route::post('/deliveries/{order}/proof', [RiderDeliveryController::class, 'storeProof']);
             Route::get('/profile', [RiderDeliveryController::class, 'showProfile']);
             Route::put('/profile', [RiderDeliveryController::class, 'updateProfile']);
         });
@@ -95,6 +97,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::put('/orders/{order}/status', [OrderController::class, 'updateStatus']);
             Route::put('/orders/{order}/rider', [OrderController::class, 'assignRider']);
             Route::get('/riders', [RiderController::class, 'index']);
+            Route::post('/riders/{user}/approve-duty', [RiderController::class, 'approveDuty']);
             Route::match(['put', 'patch'], '/menu-items/{menuItem}', [MenuItemController::class, 'update']);
             Route::get('/orders/{order}/payments', [PaymentController::class, 'index']);
         });

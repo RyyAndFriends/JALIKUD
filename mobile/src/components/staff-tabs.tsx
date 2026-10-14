@@ -4,6 +4,7 @@ const STAFF_TABS = [
   { name: 'orders', label: 'Orders', icon: require('@/assets/images/tabIcons/orders.png') },
   { name: 'menu', label: 'Menu Status', icon: require('@/assets/images/tabIcons/menu.png') },
   { name: 'activity', label: 'Activity', icon: require('@/assets/images/tabIcons/activity.png') },
+  { name: 'riders', label: 'Riders', icon: require('@/assets/images/tabIcons/orders.png') },
   { name: 'settings', label: 'Settings', icon: require('@/assets/images/tabIcons/more.png') },
 ] as const;
 

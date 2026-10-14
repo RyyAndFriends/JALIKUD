@@ -9,6 +9,8 @@ use App\Models\OrderStatusHistory;
 use App\Models\RiderProfile;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -223,17 +225,38 @@ class StaffRiderTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_assign_rejects_a_rider_who_already_has_a_delivery(): void
+    {
+        $rider = $this->onDutyRider();
+        $this->order(['rider_id' => $rider->id, 'status' => Order::STATUS_READY]);
+        $next = $this->order();
+        Sanctum::actingAs($this->user(User::ROLE_STAFF));
+
+        $this->putJson("/api/admin/orders/{$next->id}/rider", ['rider_id' => $rider->id])
+            ->assertStatus(422);
+
+        $directory = $this->getJson('/api/admin/riders')->assertOk();
+        $row = collect($directory->json('data'))->firstWhere('id', $rider->id);
+        $this->assertSame('on_delivery', $row['availability_status']);
+    }
+
     public function test_rider_can_toggle_own_availability(): void
     {
         $rider = $this->user(User::ROLE_RIDER);
         Sanctum::actingAs($rider);
 
-        $this->putJson('/api/rider/availability', ['is_available' => true])
-            ->assertOk()
-            ->assertJsonPath('data.is_active', true);
-
         $this->putJson('/api/rider/availability', ['is_available' => false])->assertOk();
         $this->assertFalse($rider->fresh()->riderProfile->is_active);
+
+        $this->putJson('/api/rider/availability', ['is_available' => true])->assertStatus(422);
+
+        $this->postJson('/api/rider/duty-request')->assertOk();
+        $this->assertNotNull($rider->fresh()->riderProfile->duty_requested_at);
+
+        Sanctum::actingAs($this->user(User::ROLE_STAFF));
+        $this->postJson("/api/admin/riders/{$rider->id}/approve-duty")
+            ->assertOk()
+            ->assertJsonPath('data.is_active', true);
 
         Sanctum::actingAs($this->user(User::ROLE_CUSTOMER));
         $this->putJson('/api/rider/availability', ['is_available' => true])->assertStatus(403);
@@ -284,6 +307,11 @@ class StaffRiderTest extends TestCase
 
         $this->putJson("/api/rider/deliveries/{$order->id}/status", ['status' => Order::STATUS_OUT_FOR_DELIVERY])
             ->assertOk();
+        $this->putJson('/api/rider/availability', ['is_available' => false])->assertStatus(422);
+        Storage::fake('public');
+        $this->post("/api/rider/deliveries/{$order->id}/proof", [
+            'image' => UploadedFile::fake()->image('proof.jpg', 640, 480),
+        ])->assertOk();
         $this->putJson("/api/rider/deliveries/{$order->id}/status", ['status' => Order::STATUS_COMPLETED])
             ->assertOk()
             ->assertJsonPath('data.payment_status', Order::PAYMENT_PAID);
@@ -295,6 +323,32 @@ class StaffRiderTest extends TestCase
             'provider' => 'cod',
             'status' => 'succeeded',
         ]);
+    }
+
+    public function test_rider_must_upload_picture_proof_before_completion(): void
+    {
+        Storage::fake('public');
+        $rider = $this->user(User::ROLE_RIDER);
+        $order = $this->order(['rider_id' => $rider->id, 'status' => Order::STATUS_OUT_FOR_DELIVERY]);
+        Sanctum::actingAs($rider);
+
+        $this->putJson("/api/rider/deliveries/{$order->id}/status", ['status' => Order::STATUS_COMPLETED])
+            ->assertStatus(422);
+
+        Sanctum::actingAs($this->user(User::ROLE_RIDER));
+        $this->post("/api/rider/deliveries/{$order->id}/proof", [
+            'image' => UploadedFile::fake()->image('foreign-proof.jpg', 640, 480),
+        ])->assertNotFound();
+
+        Sanctum::actingAs($rider);
+
+        $this->post("/api/rider/deliveries/{$order->id}/proof", [
+            'image' => UploadedFile::fake()->image('proof.jpg', 640, 480),
+        ])->assertOk();
+
+        $path = $order->fresh()->delivery_proof_path;
+        $this->assertNotNull($path);
+        Storage::disk('public')->assertExists($path);
     }
 
     public function test_staff_cannot_complete_the_delivery_leg(): void
@@ -317,6 +371,11 @@ class StaffRiderTest extends TestCase
             'payment_status' => Order::PAYMENT_UNPAID,
         ]);
         Sanctum::actingAs($rider);
+
+        Storage::fake('public');
+        $this->post("/api/rider/deliveries/{$order->id}/proof", [
+            'image' => UploadedFile::fake()->image('proof.jpg', 640, 480),
+        ])->assertOk();
 
         $this->putJson("/api/rider/deliveries/{$order->id}/status", ['status' => Order::STATUS_COMPLETED])
             ->assertStatus(422);
