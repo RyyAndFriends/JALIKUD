@@ -10,6 +10,8 @@ use App\Models\PointTransaction;
 use App\Models\Reward;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -126,11 +128,13 @@ class RewardsTest extends TestCase
             'payment_status' => Order::PAYMENT_UNPAID,
             'subtotal' => 250,
             'total_amount' => 250,
-            'delivery_proof_path' => 'uploads/images/delivery-proofs/proof.jpg',
         ]);
 
+        Storage::fake('public');
         Sanctum::actingAs($rider);
-        $this->putJson("/api/rider/deliveries/{$order->id}/status", ['status' => Order::STATUS_COMPLETED])->assertOk();
+        $this->post("/api/rider/deliveries/{$order->id}/complete", [
+            'image' => UploadedFile::fake()->image('proof.jpg', 640, 480),
+        ])->assertOk();
         $this->assertDatabaseHas('point_transactions', [
             'user_id' => $customer->id,
             'order_id' => $order->id,
@@ -138,7 +142,6 @@ class RewardsTest extends TestCase
             'reason' => 'earned',
         ]);
 
-        $this->putJson("/api/rider/deliveries/{$order->id}/status", ['status' => Order::STATUS_COMPLETED])->assertStatus(422);
         $this->assertSame(1, PointTransaction::where('order_id', $order->id)->where('reason', 'earned')->count());
     }
 

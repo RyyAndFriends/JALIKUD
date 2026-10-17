@@ -25,7 +25,7 @@ const STATUS_META: Record<RiderStatus, { label: string; dot: string; chipBg: str
 function riderStatus(rider: StaffRider): RiderStatus {
   const status = rider.availability_status;
   if (status && status in STATUS_META) return status;
-  return rider.rider_profile?.is_active ? 'available' : 'not_available';
+  return rider.rider_profile?.is_active && rider.rider_profile?.delivery_ready_at ? 'available' : 'not_available';
 }
 
 function dutyQrValue(code: string): string {

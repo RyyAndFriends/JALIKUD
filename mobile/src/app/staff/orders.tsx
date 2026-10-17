@@ -62,14 +62,12 @@ function OrderCard({
   onConfirm,
   onReject,
   onAdvance,
-  onAssign,
 }: {
   order: StaffOrder;
   busy: boolean;
   onConfirm: () => void;
   onReject: () => void;
   onAdvance: (next: OrderStatus, label: string) => void;
-  onAssign?: () => void;
 }) {
   const isDelivery = order.order_type === 'delivery';
   const advance = NEXT_STATUS[order.status];
@@ -183,16 +181,6 @@ function OrderCard({
             <Text style={[styles.statusBadgeText, styles.statusRejectedText]}>✕ Cancelled</Text>
           </View>
         )}
-        {order.status === 'ready' && isDelivery && onAssign && (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Assign rider for order ${order.order_number}`}
-            disabled={busy}
-            onPress={onAssign}
-            style={({ pressed }) => [styles.assignButton, pressed && styles.pressed]}>
-            <Text style={styles.assignButtonText}>🛵 {order.rider ? 'Reassign' : 'Assign rider'}</Text>
-          </Pressable>
-        )}
       </View>
     </View>
   );
@@ -202,16 +190,12 @@ export default function StaffOrdersScreen() {
   const { token, user } = useAuth();
   const insets = useSafeAreaInsets();
   const [orders, setOrders] = useState<StaffOrder[]>([]);
-  const [riders, setRiders] = useState<{ id: number; name: string; meta: string; onDuty: boolean }[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [loadError, setLoadError] = useState('');
   const [filter, setFilter] = useState<QueueFilter>('incoming');
   const [rejectingOrder, setRejectingOrder] = useState<StaffOrder | null>(null);
-  const [assigningOrder, setAssigningOrder] = useState<StaffOrder | null>(null);
-  const [selectedRiderId, setSelectedRiderId] = useState<number | null>(null);
-  const [assignError, setAssignError] = useState('');
   const [reason, setReason] = useState(REJECTION_REASONS[0]);
   const [note, setNote] = useState('');
   const [feedback, setFeedback] = useState('');
@@ -227,21 +211,8 @@ export default function StaffOrdersScreen() {
     if (!token) return;
     setLoadError('');
     try {
-      const [liveOrders, liveRiders] = await Promise.all([
-        staffApi.orders(token),
-        staffApi.riders(token),
-      ]);
+      const liveOrders = await staffApi.orders(token);
       setOrders(liveOrders);
-      setRiders(
-        liveRiders.map((rider) => ({
-          id: rider.id,
-          name: rider.name,
-          meta: [rider.rider_profile?.vehicle_type, rider.rider_profile?.plate_number]
-            .filter(Boolean)
-            .join(' · ') || rider.phone || 'No vehicle on file',
-          onDuty: rider.availability_status === 'available',
-        })),
-      );
     } catch (caught) {
       setLoadError(errorMessage(caught, 'Could not load the order queue.'));
     } finally {
@@ -291,35 +262,9 @@ export default function StaffOrdersScreen() {
       order.id,
       () => staffApi.updateOrderStatus(token, order.id, 'confirmed'),
       order.order_type === 'delivery'
-        ? `${order.order_number} confirmed. Assign a delivery rider when it is ready.`
+        ? `${order.order_number} confirmed. A rider will be assigned automatically when it is ready.`
         : `${order.order_number} confirmed. The kitchen can start preparing it.`,
     );
-  };
-
-  const openAssignSheet = (order: StaffOrder) => {
-    setSelectedRiderId(order.rider_id);
-    setAssignError('');
-    setAssigningOrder(order);
-  };
-
-  const closeAssignSheet = () => {
-    setAssigningOrder(null);
-    setSelectedRiderId(null);
-    setAssignError('');
-  };
-
-  const handleAssign = () => {
-    if (!assigningOrder || !token || selectedRiderId == null) {
-      if (selectedRiderId == null) setAssignError('Select a rider first.');
-      return;
-    }
-    const rider = riders.find((candidate) => candidate.id === selectedRiderId);
-    void runOn(
-      assigningOrder.id,
-      () => staffApi.assignRider(token, assigningOrder.id, selectedRiderId),
-      `${rider?.name ?? 'Rider'} assigned to ${assigningOrder.order_number}. The rider app has been notified.`,
-    );
-    closeAssignSheet();
   };
 
   const closeRejectModal = () => {
@@ -338,8 +283,6 @@ export default function StaffOrdersScreen() {
     );
     closeRejectModal();
   };
-
-  const availableRiders = riders.filter((rider) => rider.onDuty);
 
   return (
     <View style={styles.container}>
@@ -399,7 +342,6 @@ export default function StaffOrdersScreen() {
             onConfirm={() => handleConfirm(order)}
             onReject={() => setRejectingOrder(order)}
             onAdvance={(next, label) => handleStatus(order, next, `${order.order_number}: ${label}.`)}
-            onAssign={order.order_type === 'delivery' ? () => openAssignSheet(order) : undefined}
           />
         )) : (
           !loading && <View style={styles.empty}><Text style={styles.emptyIcon}>🎉</Text><Text style={styles.emptyTitle}>Queue is clear</Text><Text style={styles.emptyText}>No {filter} orders right now.</Text></View>
@@ -435,47 +377,6 @@ export default function StaffOrdersScreen() {
             <View style={styles.modalActions}>
               <Pressable onPress={closeRejectModal} style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}><Text style={styles.cancelButtonText}>Cancel</Text></Pressable>
               <Pressable onPress={handleReject} style={({ pressed }) => [styles.modalRejectButton, pressed && styles.pressed]}><Text style={styles.modalRejectText}>Reject Order</Text></Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={assigningOrder != null} transparent animationType="slide" onRequestClose={closeAssignSheet}>
-        <View style={styles.modalBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeAssignSheet} accessibilityLabel="Close rider assignment dialog" />
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Assign rider · {assigningOrder?.order_number}</Text>
-            <Text style={styles.modalSubtitle}>
-              {availableRiders.length
-                ? 'Pick an Available rider. They will see the delivery in their app.'
-                : 'No riders are Available right now.'}
-            </Text>
-            <View style={styles.reasonList}>
-              {riders.map((rider) => {
-                const active = selectedRiderId === rider.id;
-                return (
-                  <Pressable
-                    key={rider.id}
-                    disabled={!rider.onDuty}
-                    onPress={() => setSelectedRiderId(rider.id)}
-                    style={[styles.riderOption, active && styles.riderOptionActive, !rider.onDuty && styles.riderOptionDisabled]}>
-                    <View style={styles.riderAvatar}><Text style={styles.riderAvatarText}>🛵</Text></View>
-                    <View style={styles.riderCopy}>
-                      <Text style={[styles.riderName, !rider.onDuty && styles.riderNameDisabled]}>{rider.name}</Text>
-                      <Text style={styles.riderMeta}>{rider.meta}</Text>
-                    </View>
-                    <View style={[styles.riderStatusChip, rider.onDuty && styles.riderStatusAvailable]}>
-                      <Text style={styles.riderStatusText}>{rider.onDuty ? 'Available' : 'Not Available'}</Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-            {assignError ? <Text style={styles.assignError}>{assignError}</Text> : null}
-            <View style={styles.modalActions}>
-              <Pressable onPress={closeAssignSheet} style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}><Text style={styles.cancelButtonText}>Cancel</Text></Pressable>
-              <Pressable onPress={handleAssign} style={({ pressed }) => [styles.modalAssignButton, pressed && styles.pressed]}><Text style={styles.modalAssignText}>Assign rider</Text></Pressable>
             </View>
           </View>
         </View>

@@ -32,9 +32,10 @@ export default function RiderSettingsScreen() {
     riderApi.profile(token).then(setProfile).catch((caught) => setError(errorMessage(caught)));
   }, [token]));
 
-  const available = profile?.availability_status === 'available';
+  const isActive = profile?.is_active === true;
+  const isReady = profile?.delivery_ready_at != null;
   const onDelivery = profile?.availability_status === 'on_delivery';
-  const status = onDelivery ? 'On Delivery' : available ? 'Available' : 'Not Available';
+  const status = onDelivery ? 'On Delivery' : isReady ? 'Ready to Deliver' : isActive ? 'On Duty' : 'Not Clocked In';
 
   const openScanner = async () => {
     setError('');
@@ -72,6 +73,19 @@ export default function RiderSettingsScreen() {
     }
   };
 
+  const clockOut = async () => {
+    if (!token || busy) return;
+    setBusy(true); setError('');
+    try {
+      await riderApi.setAvailability(token, false);
+      setProfile(await riderApi.profile(token));
+    } catch (caught) {
+      setError(errorMessage(caught, 'Could not clock out.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <RoleSettingsScreen
       roleLabel="Delivery Rider"
@@ -84,20 +98,22 @@ export default function RiderSettingsScreen() {
       <View style={styles.card}>
         <View style={styles.qrBox}><Text style={styles.qrIcon}>📷</Text></View>
         <View style={styles.copy}>
-          <Text style={styles.title}>{onDelivery ? 'On Delivery' : available ? 'You are on duty' : 'Scan the duty QR to clock in'}</Text>
+          <Text style={styles.title}>{onDelivery ? 'On Delivery' : isActive ? 'You are clocked in' : 'Scan the duty QR to clock in'}</Text>
           <Text style={styles.hint}>
             {onDelivery
-              ? 'Complete your current delivery before ending your shift.'
-              : available
-                ? 'You can receive a delivery assignment from staff.'
+              ? 'Complete your current delivery before clocking out.'
+              : isActive
+                ? (isReady
+                    ? 'You are in the delivery queue. Clock out when your shift ends.'
+                    : 'Clocked in. Go ready on the Deliveries screen to receive orders.')
                 : "Ask staff to show today's duty QR, then scan it to clock in."}
           </Text>
           <Pressable
             accessibilityRole="button"
-            disabled={busy || available || onDelivery}
-            onPress={() => void openScanner()}
-            style={({ pressed }) => [styles.button, (busy || available || onDelivery) && styles.disabled, pressed && styles.pressed]}>
-            {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>{onDelivery ? 'On Delivery' : available ? 'On duty' : 'Scan duty QR'}</Text>}
+            disabled={busy || onDelivery}
+            onPress={() => void (isActive ? clockOut() : openScanner())}
+            style={({ pressed }) => [styles.button, (busy || onDelivery) && styles.disabled, pressed && styles.pressed]}>
+            {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>{onDelivery ? 'On Delivery' : isActive ? 'Clock out' : 'Scan duty QR'}</Text>}
           </Pressable>
           {!!error && <Text style={styles.error}>⚠ {error}</Text>}
         </View>

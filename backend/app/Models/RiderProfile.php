@@ -14,6 +14,7 @@ class RiderProfile extends Model
         'plate_number',
         'is_active',
         'duty_checked_in_at',
+        'delivery_ready_at',
     ];
 
     protected function casts(): array
@@ -21,6 +22,7 @@ class RiderProfile extends Model
         return [
             'is_active' => 'boolean',
             'duty_checked_in_at' => 'datetime',
+            'delivery_ready_at' => 'datetime',
         ];
     }
 
@@ -31,12 +33,17 @@ class RiderProfile extends Model
 
     /**
      * Clock out every rider still on duty. Called by the end-of-day scheduled
-     * job so riders who forgot to clock out are reset automatically.
+     * job so riders who forgot to clock out are reset automatically. Readiness
+     * is cleared too, so nobody stays queued into the next day.
      */
     public static function clockOutActiveRiders(): int
     {
         return static::query()
             ->where('is_active', true)
-            ->update(['is_active' => false, 'duty_checked_in_at' => null]);
+            ->update([
+                'is_active' => false,
+                'duty_checked_in_at' => null,
+                'delivery_ready_at' => null,
+            ]);
     }
 }
