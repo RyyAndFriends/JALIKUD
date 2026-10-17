@@ -60,7 +60,7 @@ export type StaffRider = {
     vehicle_type: string | null;
     plate_number: string | null;
     is_active: boolean;
-    duty_requested_at?: string | null;
+    duty_checked_in_at?: string | null;
   } | null;
 };
 
@@ -69,7 +69,7 @@ export type RiderProfile = {
   vehicle_type: string | null;
   plate_number: string | null;
   is_active: boolean;
-  duty_requested_at: string | null;
+  duty_checked_in_at: string | null;
   availability_status: 'available' | 'on_delivery' | 'not_available';
 };
 
@@ -129,8 +129,8 @@ export const staffApi = {
     }).then((response) => response.data),
   riders: (token: string) =>
     apiRequest<DataResponse<Paginated<StaffRider>>>('/admin/riders?per_page=100', { token }).then(list),
-  approveRiderDuty: (token: string, riderId: number) =>
-    apiRequest<DataResponse<RiderProfile>>(`/admin/riders/${riderId}/approve-duty`, { token, method: 'POST' }).then((response) => response.data),
+  dutyCode: (token: string) =>
+    apiRequest<DataResponse<{ code: string; date: string }>>('/admin/duty-code', { token }).then((response) => response.data),
   menu: () =>
     apiRequest<DataResponse<Paginated<StaffMenuItem>>>('/menu?per_page=100').then(list),
   categories: () =>
@@ -162,8 +162,8 @@ export const riderApi = {
   },
   profile: (token: string) =>
     apiRequest<DataResponse<RiderProfile>>('/rider/profile', { token }).then((response) => response.data),
-  requestDuty: (token: string) =>
-    apiRequest<DataResponse<RiderProfile>>('/rider/duty-request', { token, method: 'POST' }).then((response) => response.data),
+  checkIn: (token: string, code: string) =>
+    apiRequest<DataResponse<RiderProfile>>('/rider/duty/check-in', { token, method: 'POST', body: { code } }).then((response) => response.data),
   setAvailability: (token: string, isAvailable: boolean) =>
     apiRequest<DataResponse<{ is_active: boolean }>>('/rider/availability', {
       token,

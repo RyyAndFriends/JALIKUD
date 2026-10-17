@@ -6,6 +6,7 @@ use App\Http\Requests\General\PaginationRequest;
 use App\Models\RiderProfile;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\DutyCodeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -62,30 +63,15 @@ class RiderController extends Controller
         return response()->json(['data' => $profile]);
     }
 
-    public function approveDuty(User $user): JsonResponse
+    public function dutyCode(DutyCodeService $dutyCodes): JsonResponse
     {
-        if ($user->role !== User::ROLE_RIDER) {
-            return response()->json(['message' => 'The selected user is not a rider.'], 422);
-        }
+        $today = now();
 
-        $profile = $user->riderProfile;
-        if ($profile === null || $profile->duty_requested_at === null) {
-            return response()->json(['message' => 'This rider has no pending duty QR request.'], 422);
-        }
-
-        $busy = Order::query()
-            ->where('rider_id', $user->id)
-            ->whereNotIn('status', [Order::STATUS_COMPLETED, Order::STATUS_CANCELLED])
-            ->exists();
-        if ($busy) {
-            return response()->json(['message' => 'This rider already has an active delivery.'], 422);
-        }
-
-        $profile->update(['is_active' => true, 'duty_requested_at' => null]);
-
-        $fresh = $profile->fresh();
-        $fresh->setAttribute('availability_status', 'available');
-
-        return response()->json(['data' => $fresh]);
+        return response()->json([
+            'data' => [
+                'code' => $dutyCodes->today(),
+                'date' => $today->toDateString(),
+            ],
+        ]);
     }
 }

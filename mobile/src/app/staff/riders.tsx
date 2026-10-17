@@ -1,8 +1,9 @@
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
+import QRCode from 'react-native-qrcode-svg';
 
 import { BottomTabInset } from '@/constants/theme';
 import { useAuth } from '@/context/auth-context';
@@ -27,23 +28,32 @@ function riderStatus(rider: StaffRider): RiderStatus {
   return rider.rider_profile?.is_active ? 'available' : 'not_available';
 }
 
+function dutyQrValue(code: string): string {
+  return JSON.stringify({ type: 'duty_code', code });
+}
+
 export default function StaffRidersScreen() {
   const { token } = useAuth();
   const [riders, setRiders] = useState<StaffRider[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [busyId, setBusyId] = useState<number | null>(null);
   const [error, setError] = useState('');
-  const pendingRider = riders.find((rider) => rider.rider_profile?.duty_requested_at);
+  const [dutyCode, setDutyCode] = useState<string | null>(null);
   const readyCount = riders.filter((rider) => riderStatus(rider) === 'available').length;
   const activeCount = riders.filter((rider) => riderStatus(rider) === 'on_delivery').length;
 
   const load = useCallback(async () => {
     if (!token) return;
     setError('');
-    try { setRiders(await staffApi.riders(token)); }
-    catch (caught) { setError(errorMessage(caught, 'Could not load riders.')); }
-    finally { setLoading(false); }
+    try {
+      const [riderList, code] = await Promise.all([staffApi.riders(token), staffApi.dutyCode(token)]);
+      setRiders(riderList);
+      setDutyCode(code.code);
+    } catch (caught) {
+      setError(errorMessage(caught, 'Could not load riders.'));
+    } finally {
+      setLoading(false);
+    }
   }, [token]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
@@ -52,14 +62,6 @@ export default function StaffRidersScreen() {
     setRefreshing(true);
     load().finally(() => setRefreshing(false));
   }, [load]);
-
-  const approve = async (rider: StaffRider) => {
-    if (!token || busyId !== null) return;
-    setBusyId(rider.id); setError('');
-    try { await staffApi.approveRiderDuty(token, rider.id); await load(); }
-    catch (caught) { setError(errorMessage(caught, 'Could not approve the duty QR.')); }
-    finally { setBusyId(null); }
-  };
 
   return (
     <View style={styles.container}>
@@ -85,21 +87,13 @@ export default function StaffRidersScreen() {
           </View>
         </View>
 
-        {pendingRider && (
+        {dutyCode && (
           <View style={styles.scanCard}>
-            <View style={styles.scanIcon}><Text style={styles.scanIconText}>▦</Text></View>
+            <QRCode value={dutyQrValue(dutyCode)} size={72} backgroundColor="#FFFFFF" color="#1C1C1E" />
             <View style={styles.scanCopy}>
-              <Text style={styles.scanTitle}>Duty QR received</Text>
-              <Text style={styles.scanText}>{pendingRider.name} is requesting to become Available.</Text>
+              <Text style={styles.scanTitle}>Today's duty QR</Text>
+              <Text style={styles.scanText}>Riders scan this code to clock in for the day.</Text>
             </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Scan duty QR for ${pendingRider.name}`}
-              disabled={busyId === pendingRider.id}
-              onPress={() => void approve(pendingRider)}
-              style={({ pressed }) => [styles.scanButton, pressed && styles.pressed]}>
-              {busyId === pendingRider.id ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.scanButtonText}>Scan QR</Text>}
-            </Pressable>
           </View>
         )}
 

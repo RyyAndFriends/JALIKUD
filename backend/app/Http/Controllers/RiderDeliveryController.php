@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\General\PaginationRequest;
 use App\Models\Order;
 use App\Models\RiderProfile;
+use App\Services\DutyCodeService;
 use App\Services\PointLedger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +24,8 @@ class RiderDeliveryController extends Controller
         Order::STATUS_READY => [Order::STATUS_OUT_FOR_DELIVERY],
         Order::STATUS_OUT_FOR_DELIVERY => [Order::STATUS_COMPLETED],
     ];
+
+    public function __construct(private readonly DutyCodeService $dutyCodes) {}
 
     public function index(Request $request, PaginationRequest $pagination): JsonResponse
     {
@@ -61,7 +64,7 @@ class RiderDeliveryController extends Controller
         ]);
 
         if ($data['is_available']) {
-            return response()->json(['message' => 'Send a duty QR request and wait for staff approval.'], 422);
+            return response()->json(['message' => 'Scan the daily duty QR to clock in.'], 422);
         }
 
         if ($this->hasActiveDelivery($request->user()->id)) {
@@ -70,21 +73,25 @@ class RiderDeliveryController extends Controller
 
         $profile = RiderProfile::updateOrCreate(
             ['user_id' => $request->user()->id],
-            ['is_active' => false, 'duty_requested_at' => null],
+            ['is_active' => false, 'duty_checked_in_at' => null],
         );
 
         return response()->json(['data' => $profile]);
     }
 
-    public function requestDuty(Request $request): JsonResponse
+    public function checkIn(Request $request): JsonResponse
     {
-        if ($this->hasActiveDelivery($request->user()->id)) {
-            return response()->json(['message' => 'Finish the assigned delivery before requesting duty activation.'], 422);
+        $data = $request->validate([
+            'code' => ['required', 'string'],
+        ]);
+
+        if (! $this->dutyCodes->verify($data['code'])) {
+            return response()->json(['message' => 'Invalid or expired duty code.'], 422);
         }
 
         $profile = RiderProfile::updateOrCreate(
             ['user_id' => $request->user()->id],
-            ['is_active' => false, 'duty_requested_at' => now()],
+            ['is_active' => true, 'duty_checked_in_at' => now()],
         );
 
         return response()->json(['data' => $this->withAvailabilityStatus($profile)]);

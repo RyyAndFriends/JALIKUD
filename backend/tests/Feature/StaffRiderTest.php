@@ -240,7 +240,7 @@ class StaffRiderTest extends TestCase
         $this->assertSame('on_delivery', $row['availability_status']);
     }
 
-    public function test_rider_can_toggle_own_availability(): void
+    public function test_rider_checks_in_with_the_daily_duty_code(): void
     {
         $rider = $this->user(User::ROLE_RIDER);
         Sanctum::actingAs($rider);
@@ -250,16 +250,29 @@ class StaffRiderTest extends TestCase
 
         $this->putJson('/api/rider/availability', ['is_available' => true])->assertStatus(422);
 
-        $this->postJson('/api/rider/duty-request')->assertOk();
-        $this->assertNotNull($rider->fresh()->riderProfile->duty_requested_at);
-
+        // Staff generate the day's duty code, then a rider scans it to clock in.
         Sanctum::actingAs($this->user(User::ROLE_STAFF));
-        $this->postJson("/api/admin/riders/{$rider->id}/approve-duty")
-            ->assertOk()
-            ->assertJsonPath('data.is_active', true);
+        $code = $this->getJson('/api/admin/duty-code')->assertOk()->json('data.code');
+        $this->assertIsString($code);
 
+        Sanctum::actingAs($rider);
+        $this->postJson('/api/rider/duty/check-in', ['code' => $code])
+            ->assertOk()
+            ->assertJsonPath('data.is_active', true)
+            ->assertJsonPath('data.availability_status', 'available');
+        $this->assertTrue($rider->fresh()->riderProfile->is_active);
+        $this->assertNotNull($rider->fresh()->riderProfile->duty_checked_in_at);
+
+        // A forged code is rejected and leaves the rider off duty.
+        $other = $this->user(User::ROLE_RIDER);
+        RiderProfile::create(['user_id' => $other->id, 'is_active' => false]);
+        Sanctum::actingAs($other);
+        $this->postJson('/api/rider/duty/check-in', ['code' => 'forged-code'])->assertStatus(422);
+        $this->assertFalse($other->fresh()->riderProfile->is_active);
+
+        // Customers cannot clock riders in.
         Sanctum::actingAs($this->user(User::ROLE_CUSTOMER));
-        $this->putJson('/api/rider/availability', ['is_available' => true])->assertStatus(403);
+        $this->postJson('/api/rider/duty/check-in', ['code' => $code])->assertStatus(403);
     }
 
     public function test_riders_directory_lists_only_riders(): void

@@ -41,6 +41,12 @@
           "cameraPermission": "Allow Jalikud to take a delivery proof photo.",
           "microphonePermission": false
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Jalikud to scan duty QR codes."
+        }
       ]
     ],
     "experiments": {

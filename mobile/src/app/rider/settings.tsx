@@ -3,31 +3,73 @@ import { useAuth } from '@/context/auth-context';
 import { errorMessage } from '@/lib/api';
 import { riderApi, type RiderProfile } from '@/lib/staff-api';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+
+function parseDutyCode(data: string): string | null {
+  try {
+    const parsed = JSON.parse(data) as { code?: unknown };
+    if (parsed && typeof parsed.code === 'string' && parsed.code) return parsed.code;
+  } catch {
+    // Not JSON; fall through to the raw-string fallback.
+  }
+  const trimmed = data.trim();
+  return trimmed ? trimmed : null;
+}
 
 export default function RiderSettingsScreen() {
   const { token } = useAuth();
   const [profile, setProfile] = useState<RiderProfile | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const scanLock = useRef(false);
 
   useFocusEffect(useCallback(() => {
     if (!token) return;
     riderApi.profile(token).then(setProfile).catch((caught) => setError(errorMessage(caught)));
   }, [token]));
 
-  const pending = profile?.duty_requested_at != null;
   const available = profile?.availability_status === 'available';
   const onDelivery = profile?.availability_status === 'on_delivery';
   const status = onDelivery ? 'On Delivery' : available ? 'Available' : 'Not Available';
 
-  const sendDutyQr = async () => {
-    if (!token || busy) return;
+  const openScanner = async () => {
+    setError('');
+    if (!permission?.granted) {
+      const result = await requestPermission();
+      if (!result.granted) {
+        setError('Camera permission is required to scan the duty QR.');
+        return;
+      }
+    }
+    scanLock.current = false;
+    setScanning(true);
+  };
+
+  const handleScan = async (data: string) => {
+    if (scanLock.current || busy || !token) return;
+    scanLock.current = true;
+    setScanning(false);
+
+    const code = parseDutyCode(data);
+    if (!code) {
+      setError('Scanned code is not a valid duty QR.');
+      scanLock.current = false;
+      return;
+    }
+
     setBusy(true); setError('');
-    try { setProfile(await riderApi.requestDuty(token)); }
-    catch (caught) { setError(errorMessage(caught, 'Could not send the duty QR.')); }
-    finally { setBusy(false); }
+    try {
+      setProfile(await riderApi.checkIn(token, code));
+    } catch (caught) {
+      setError(errorMessage(caught, 'Could not clock in.'));
+    } finally {
+      setBusy(false);
+      scanLock.current = false;
+    }
   };
 
   return (
@@ -38,28 +80,46 @@ export default function RiderSettingsScreen() {
         { label: 'Vehicle', value: [profile?.vehicle_type, profile?.plate_number].filter(Boolean).join(' · ') || 'Not set' },
         { label: 'Duty status', value: status },
       ]}>
-      <Text style={styles.sectionTitle}>DUTY QR</Text>
+      <Text style={styles.sectionTitle}>DUTY CHECK-IN</Text>
       <View style={styles.card}>
-        <View style={styles.qrBox}><Text style={styles.qrIcon}>▦</Text></View>
+        <View style={styles.qrBox}><Text style={styles.qrIcon}>📷</Text></View>
         <View style={styles.copy}>
-          <Text style={styles.title}>{pending ? 'Waiting for staff scan' : available ? 'You are Available' : 'Request duty activation'}</Text>
+          <Text style={styles.title}>{onDelivery ? 'On Delivery' : available ? 'You are on duty' : 'Scan the duty QR to clock in'}</Text>
           <Text style={styles.hint}>
-            {pending
-              ? 'Your QR was sent to staff. You become Available after they scan it.'
+            {onDelivery
+              ? 'Complete your current delivery before ending your shift.'
               : available
                 ? 'You can receive a delivery assignment from staff.'
-                : 'Send your duty QR to staff when you are ready to receive deliveries.'}
+                : "Ask staff to show today's duty QR, then scan it to clock in."}
           </Text>
           <Pressable
             accessibilityRole="button"
-            disabled={busy || pending || available || onDelivery}
-            onPress={() => void sendDutyQr()}
-            style={({ pressed }) => [styles.button, (busy || pending || available || onDelivery) && styles.disabled, pressed && styles.pressed]}>
-            {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>{pending ? 'QR Sent' : onDelivery ? 'On Delivery' : available ? 'Available' : 'Send QR to Staff'}</Text>}
+            disabled={busy || available || onDelivery}
+            onPress={() => void openScanner()}
+            style={({ pressed }) => [styles.button, (busy || available || onDelivery) && styles.disabled, pressed && styles.pressed]}>
+            {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.buttonText}>{onDelivery ? 'On Delivery' : available ? 'On duty' : 'Scan duty QR'}</Text>}
           </Pressable>
           {!!error && <Text style={styles.error}>⚠ {error}</Text>}
         </View>
       </View>
+
+      <Modal visible={scanning} animationType="slide" onRequestClose={() => setScanning(false)}>
+        <View style={styles.scannerContainer}>
+          {scanning && (
+            <CameraView
+              style={StyleSheet.absoluteFill}
+              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+              onBarcodeScanned={({ data }) => void handleScan(data)}
+            />
+          )}
+          <View style={styles.scannerHeader}>
+            <Text style={styles.scannerTitle}>Scan today's duty QR</Text>
+          </View>
+          <Pressable accessibilityRole="button" onPress={() => setScanning(false)} style={styles.scannerClose}>
+            <Text style={styles.scannerCloseText}>Cancel</Text>
+          </Pressable>
+        </View>
+      </Modal>
     </RoleSettingsScreen>
   );
 }
@@ -77,4 +137,9 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.5 },
   pressed: { opacity: 0.72 },
   error: { color: '#B91C1C', fontSize: 10, fontWeight: '700', marginTop: 8 },
+  scannerContainer: { flex: 1, backgroundColor: '#000000' },
+  scannerHeader: { position: 'absolute', top: 64, left: 16, right: 16, alignItems: 'center' },
+  scannerTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '900' },
+  scannerClose: { position: 'absolute', bottom: 48, alignSelf: 'center', backgroundColor: '#DC2626', borderRadius: 12, paddingHorizontal: 28, paddingVertical: 14 },
+  scannerCloseText: { color: '#FFFFFF', fontSize: 15, fontWeight: '900' },
 });
