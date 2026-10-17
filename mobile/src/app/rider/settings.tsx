@@ -113,7 +113,7 @@ export default function RiderSettingsScreen() {
             />
           )}
           <View style={styles.scannerHeader}>
-            <Text style={styles.scannerTitle}>Scan today's duty QR</Text>
+            <Text style={styles.scannerTitle}>Scan today&apos;s duty QR</Text>
           </View>
           <Pressable accessibilityRole="button" onPress={() => setScanning(false)} style={styles.scannerClose}>
             <Text style={styles.scannerCloseText}>Cancel</Text>

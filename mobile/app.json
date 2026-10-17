@@ -45,7 +45,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Jalikud to scan duty QR codes."
+          "cameraPermission": "Allow Jalikud to scan duty QR codes.",
+          "recordAudioAndroid": false
         }
       ]
     ],

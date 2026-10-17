@@ -91,7 +91,7 @@ export default function StaffRidersScreen() {
           <View style={styles.scanCard}>
             <QRCode value={dutyQrValue(dutyCode)} size={72} backgroundColor="#FFFFFF" color="#1C1C1E" />
             <View style={styles.scanCopy}>
-              <Text style={styles.scanTitle}>Today's duty QR</Text>
+              <Text style={styles.scanTitle}>Today&apos;s duty QR</Text>
               <Text style={styles.scanText}>Riders scan this code to clock in for the day.</Text>
             </View>
           </View>
