@@ -383,15 +383,17 @@ export default function RiderDeliveriesScreen() {
     setBusyId(delivery.id);
     setError('');
     try {
-      if (next === 'completed' && proofUri) await riderApi.uploadProof(token, delivery.id, proofUri);
-      const updated = await riderApi.updateStatus(token, delivery.id, next);
+      const updated = next === 'completed'
+        ? await riderApi.completeDelivery(token, delivery.id, proofUri as string)
+        : await riderApi.updateStatus(token, delivery.id, next);
       const mapped = toDelivery(updated);
       setDeliveries((previous) =>
         previous.map((row) => (row.id === delivery.id && mapped ? mapped : row)),
       );
       if (next === 'completed') {
-        setProfile((current) => current ? { ...current, is_active: true, availability_status: 'available' } : current);
         setShowMap(false);
+        // Refresh readiness so the queue state stays accurate after completing.
+        riderApi.profile(token).then(setProfile).catch(() => undefined);
       }
       return true;
     } catch (caught) {
@@ -402,23 +404,22 @@ export default function RiderDeliveriesScreen() {
     }
   };
 
-  const toggleAvailability = (next: boolean) => {
-    if (!token || togglingDuty || (active && next === false)) return;
-    if (next) {
-      if (profile?.availability_status !== 'available') router.push('/rider/settings');
-      return;
-    }
+  const toggleReadiness = (ready: boolean) => {
+    if (!token || togglingDuty || onDelivery) return;
     setTogglingDuty(true);
+    setError('');
     riderApi
-      .setAvailability(token, next)
-      .then((updated) => setProfile((current) => current ? { ...current, ...updated, availability_status: 'not_available' } : current))
-      .catch((caught) => setError(errorMessage(caught, 'Could not update availability.')))
+      .setReadiness(token, ready)
+      .then((updated) => setProfile(updated))
+      .catch((caught) => setError(errorMessage(caught, 'Could not update your status.')))
       .finally(() => setTogglingDuty(false));
   };
 
   const startMoving = () => setMoving(true);
   const onDelivery = active !== null;
-  const available = !onDelivery && profile?.availability_status === 'available';
+  const isActive = profile?.is_active === true;
+  const isReady = profile?.delivery_ready_at != null;
+  const available = !onDelivery && isReady;
 
   return (
     <View style={styles.container}>
@@ -446,8 +447,8 @@ export default function RiderDeliveriesScreen() {
         <View style={styles.availabilityCard}>
           <View style={styles.availabilityHeader}>
             <View>
-              <Text style={styles.availabilityEyebrow}>AVAILABILITY</Text>
-              <Text style={styles.availabilityTitle}>Choose your availability</Text>
+              <Text style={styles.availabilityEyebrow}>DELIVERY STATUS</Text>
+              <Text style={styles.availabilityTitle}>Delivery availability</Text>
             </View>
             <View
               style={[
@@ -456,47 +457,48 @@ export default function RiderDeliveriesScreen() {
                 onDelivery && styles.currentStatusOnDelivery,
               ]}>
               <Text style={styles.currentStatusText}>
-                {onDelivery ? 'On Delivery' : available ? 'Available' : 'Not Available'}
+                {onDelivery ? 'On Delivery' : isReady ? 'Ready to Deliver' : isActive ? 'On Duty' : 'Not Clocked In'}
               </Text>
             </View>
           </View>
           <Text style={styles.availabilityHint}>
             {onDelivery
               ? 'Finish your active delivery before changing availability.'
-              : available
-                ? 'You are ready to receive a delivery assignment from staff.'
-                : 'Tap Available to send your duty QR from Settings.'}
+              : isReady
+                ? 'You are in the delivery queue. The next order will be assigned automatically.'
+                : isActive
+                  ? 'You are clocked in. Go ready to join the delivery queue.'
+                  : 'Scan the duty QR from Settings to clock in.'}
           </Text>
           <View style={styles.availabilityActions}>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Set rider status to Available"
-              disabled={!!onDelivery || togglingDuty}
-              onPress={() => toggleAvailability(true)}
+              accessibilityLabel={
+                onDelivery ? 'Finish active delivery' : isReady ? 'Pause deliveries' : isActive ? 'Ready to deliver' : 'Clock in'
+              }
+              disabled={onDelivery || togglingDuty}
+              onPress={() => {
+                if (onDelivery) return;
+                if (!isActive) {
+                  router.push('/rider/settings');
+                  return;
+                }
+                toggleReadiness(!isReady);
+              }}
               style={({ pressed }) => [
                 styles.availabilityButton,
-                available && styles.onDutyButton,
+                isActive && styles.onDutyButton,
+                !isActive && styles.unavailableButton,
                 !!onDelivery && styles.availabilityButtonDisabled,
                 pressed && styles.pressed,
               ]}>
-              <Text style={[styles.availabilityButtonText, available && styles.availabilityButtonTextActive]}>
-                Available
-              </Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Set rider status to Not Available"
-              disabled={!!onDelivery || togglingDuty}
-              onPress={() => toggleAvailability(false)}
-              style={({ pressed }) => [
-                styles.availabilityButton,
-                !available && !onDelivery && styles.unavailableButton,
-                !!onDelivery && styles.availabilityButtonDisabled,
-                pressed && styles.pressed,
-              ]}>
-              <Text style={[styles.availabilityButtonText, !available && !onDelivery && styles.availabilityButtonTextActive]}>
-                Not Available
-              </Text>
+              {togglingDuty ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={[styles.availabilityButtonText, isActive && styles.availabilityButtonTextActive, !isActive && styles.availabilityButtonTextActive]}>
+                  {onDelivery ? 'On Delivery' : isReady ? 'Pause deliveries' : isActive ? 'Ready to deliver' : 'Clock in'}
+                </Text>
+              )}
             </Pressable>
           </View>
         </View>

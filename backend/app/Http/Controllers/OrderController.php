@@ -8,10 +8,9 @@ use App\Models\Coupon;
 use App\Models\CouponRedemption;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
-use App\Models\RiderProfile;
 use App\Models\StoreSetting;
-use App\Models\User;
 use App\Services\CartPricingService;
+use App\Services\DeliveryAssignmentService;
 use App\Services\PointLedger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -70,9 +69,11 @@ class OrderController extends Controller
         ];
 
         // The customer surface must not leak user objects (see
-        // CustomerMobileIntegrationTest); staff need names for the queue.
+        // CustomerMobileIntegrationTest); staff need names for the queue and
+        // the auto-assigned rider for the delivery chip.
         if ($user->isStaff()) {
             $with[] = 'user:id,name,phone';
+            $with[] = 'rider:id,name,phone';
         }
 
         $filters = $request->validate([
@@ -386,7 +387,7 @@ class OrderController extends Controller
     /**
      * PUT /api/admin/orders/{order}/status - change order status (staff/admin).
      */
-    public function updateStatus(Request $request, Order $order): JsonResponse
+    public function updateStatus(Request $request, Order $order, DeliveryAssignmentService $assignments): JsonResponse
     {
         if (! $request->user()->isStaff()) {
             return response()->json(['message' => 'Forbidden.'], 403);
@@ -428,63 +429,13 @@ class OrderController extends Controller
             PointLedger::refundForOrder($order->fresh());
         }
 
-        return response()->json(['data' => $order]);
-    }
-
-    /**
-     * PUT /api/admin/orders/{order}/rider - assign (or unassign) a rider.
-     * Staff and admins only; the assignee must hold the rider role.
-     */
-    public function assignRider(Request $request, Order $order): JsonResponse
-    {
-        $data = $request->validate([
-            'rider_id' => [
-                'nullable',
-                'integer',
-                Rule::exists('users', 'id')
-                    ->where('role', User::ROLE_RIDER)
-                    ->whereNull('deleted_at'),
-            ],
-        ]);
-
-        if ($order->order_type !== 'delivery') {
-            return response()->json(['message' => 'Only delivery orders can be assigned to a rider.'], 422);
+        // A delivery order that just became ready is handed to the next queued
+        // rider automatically; staff no longer pick one by hand.
+        if ($order->order_type === 'delivery' && $data['status'] === Order::STATUS_READY) {
+            $assignments->assignRiderToOrder($order->fresh());
         }
 
-        if (in_array($order->status, [
-            Order::STATUS_OUT_FOR_DELIVERY,
-            Order::STATUS_COMPLETED,
-            Order::STATUS_CANCELLED,
-        ], true)) {
-            return response()->json(['message' => "Cannot assign a rider to an order with status {$order->status}."], 422);
-        }
-
-        if (($data['rider_id'] ?? null) !== null) {
-            $profile = RiderProfile::where('user_id', $data['rider_id'])->first();
-
-            if ($profile === null || ! $profile->is_active) {
-                return response()->json(['message' => 'Selected rider is not on duty.'], 422);
-            }
-
-            $alreadyAssigned = Order::query()
-                ->where('rider_id', $data['rider_id'])
-                ->whereKeyNot($order->id)
-                ->whereNotIn('status', [Order::STATUS_COMPLETED, Order::STATUS_CANCELLED])
-                ->exists();
-
-            if ($alreadyAssigned) {
-                return response()->json(['message' => 'Selected rider is already on a delivery.'], 422);
-            }
-        }
-
-        $order->update([
-            'rider_id' => $data['rider_id'] ?? null,
-            'assigned_at' => array_key_exists('rider_id', $data) && $data['rider_id'] ? now() : null,
-        ]);
-
-        $order->load(['rider:id,name,phone', 'address', 'orderItems']);
-
-        return response()->json(['data' => $order]);
+        return response()->json(['data' => $order->fresh()->load('rider:id,name,phone')]);
     }
 
     private function refundDemoGcashPayment(Order $order): void

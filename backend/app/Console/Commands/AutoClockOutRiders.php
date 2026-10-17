@@ -9,7 +9,7 @@ class AutoClockOutRiders extends Command
 {
     protected $signature = 'riders:auto-clock-out';
 
-    protected $description = 'Clock out riders still on duty long past a normal shift.';
+    protected $description = 'End-of-day reset: clock out every rider still on duty and clear the delivery queue.';
 
     public function handle(): int
     {

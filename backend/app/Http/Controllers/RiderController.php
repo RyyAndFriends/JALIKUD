@@ -31,9 +31,10 @@ class RiderController extends Controller
             ->all();
 
         $riders->getCollection()->transform(function (User $rider) use ($busyIds) {
+            $profile = $rider->riderProfile;
             $rider->setAttribute('availability_status', in_array($rider->id, $busyIds, true)
                 ? 'on_delivery'
-                : ($rider->riderProfile?->is_active ? 'available' : 'not_available'));
+                : ($profile?->is_active && $profile?->delivery_ready_at ? 'available' : 'not_available'));
 
             return $rider;
         });
