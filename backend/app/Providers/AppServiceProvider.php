@@ -28,12 +28,12 @@ class AppServiceProvider extends ServiceProvider
         // bucket, while still letting $request->ip() report the real client.
         //
         // This must run here rather than in bootstrap/app.php: that file is
-        // evaluated before dotenv loads, and under `php artisan serve` the HTTP
-        // worker does not inherit $_SERVER/$_ENV, so TRUSTED_PROXIES read there
-        // is empty and silently falls back to 127.0.0.1 — which makes every
-        // proxied request share a single bucket. boot() runs after dotenv, so
-        // env() is reliable. Values are comma separated IPs/CIDRs; set this to
-        // the proxy only (e.g. the nginx container), never the client range.
+        // evaluated before dotenv loads, and php-fpm workers do not inherit
+        // $_SERVER/$_ENV, so TRUSTED_PROXIES read there is empty and silently
+        // falls back to 127.0.0.1 — which makes every proxied request share a
+        // single bucket. boot() runs after dotenv, so env() is reliable. Values
+        // are comma separated IPs/CIDRs; set this to the proxy only (e.g. the
+        // nginx container), never the client range.
         $trustedProxies = array_values(array_filter(array_map(
             'trim',
             explode(',', (string) env('TRUSTED_PROXIES', '127.0.0.1'))

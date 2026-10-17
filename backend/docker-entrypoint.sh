@@ -8,7 +8,7 @@ if [ ! -f .env ]; then
     cp .env.example .env
 fi
 
-# Persist runtime settings into .env because `artisan serve` workers
+# Persist runtime settings into .env because php-fpm workers
 # do not reliably inherit container environment variables.
 # This must run BEFORE the key check below so an injected APP_KEY is
 # written into .env and key:generate is skipped.
@@ -57,7 +57,6 @@ else
     php artisan route:clear >/dev/null 2>&1 || true
 fi
 
-# Run the scheduler so the hourly auto-clock-out (and any future jobs) fire.
-php artisan schedule:work &
-
-exec php artisan serve --host=0.0.0.0 --port=8000
+# Hand off to supervisord, which runs nginx (web), php-fpm (PHP workers) and
+# the scheduler (riders:auto-clock-out), restarting any that crash.
+exec /usr/bin/supervisord -c /etc/supervisord.conf

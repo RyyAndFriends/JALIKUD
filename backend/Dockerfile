@@ -1,11 +1,11 @@
-# ---------- Backend: Laravel API ----------
-FROM php:8.4-cli-alpine
+# ---------- Backend: Laravel API (nginx + php-fpm under supervisord) ----------
+FROM php:8.4-fpm-alpine
 
-# Install system deps and PHP extensions needed by Laravel + SQLite
-RUN apk add --no-cache bash sqlite sqlite-dev pkgconfig libpq-dev \
+# nginx serves the app; supervisord keeps nginx + php-fpm + the scheduler alive.
+RUN apk add --no-cache bash nginx supervisor sqlite sqlite-dev pkgconfig libpq-dev \
     && docker-php-ext-install pdo_sqlite pdo_pgsql
 
-# Enable OPcache (CLI build) so artisan serve workers reuse compiled bytecode
+# OPcache + upload limits (image uploads allow up to 5 MB; nginx caps bodies at 10m).
 RUN docker-php-ext-install opcache \
     && { \
         echo "opcache.enable=1"; \
@@ -15,6 +15,8 @@ RUN docker-php-ext-install opcache \
         echo "opcache.validate_timestamps=0"; \
         echo "expose_php=Off"; \
         echo "session.cookie_httponly=1"; \
+        echo "upload_max_filesize=10M"; \
+        echo "post_max_size=10M"; \
     } > /usr/local/etc/php/conf.d/app.ini
 
 # Install Composer
@@ -29,12 +31,17 @@ RUN composer install --no-dev --no-scripts --no-autoloader --prefer-dist --no-in
 # Copy application code
 COPY . .
 
+# Web server + process manager configs
+COPY nginx.conf /etc/nginx/http.d/default.conf
+COPY supervisord.conf /etc/supervisord.conf
+COPY php-fpm-www.conf /usr/local/etc/php-fpm.d/www.conf
+
 # Finish autoloader, ensure storage permissions
 RUN composer dump-autoload --optimize \
     && chown -R www-data:www-data storage bootstrap/cache database \
     && chmod -R 775 storage bootstrap/cache database
 
-# Startup script: prepare env/db, migrate, then serve
+# Startup script: prepare env/db, migrate, then hand off to supervisord
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 

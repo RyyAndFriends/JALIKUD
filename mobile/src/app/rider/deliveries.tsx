@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 
@@ -163,6 +163,8 @@ function DeliveryMapModal({
   const [proofUri, setProofUri] = useState<string | null>(null);
   const [proofError, setProofError] = useState('');
   const [capturing, setCapturing] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView>(null);
 
   useEffect(() => {
     if (!moving) return;
@@ -174,31 +176,40 @@ function DeliveryMapModal({
 
   const position = route[Math.floor(progress * (route.length - 1))];
 
+  const openProofSheet = () => {
+    setProofOpen(true);
+    setProofUri(null);
+    setProofError('');
+    // Ask for camera permission so the in-app viewfinder can render.
+    if (!permission?.granted) {
+      void requestPermission().then((result) => {
+        if (!result.granted) {
+          setProofError(result.canAskAgain
+            ? 'Camera permission is required to take delivery proof.'
+            : 'Enable camera permission in your device settings to continue.');
+        }
+      });
+    }
+  };
+
   const takeProofPhoto = async () => {
     if (capturing || busy) return;
     setCapturing(true);
     setProofError('');
     try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        setProofError(permission.canAskAgain
-          ? 'Camera permission is required to take delivery proof.'
-          : 'Enable camera permission in your device settings to continue.');
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        cameraType: ImagePicker.CameraType.back,
-        allowsEditing: true,
-        aspect: [4, 3],
-        quality: 0.7,
-      });
-      if (!result.canceled) setProofUri(result.assets[0].uri);
+      const photo = await cameraRef.current?.takePictureAsync({ quality: 0.7 });
+      if (photo) setProofUri(photo.uri);
     } catch (caught) {
-      setProofError(errorMessage(caught, 'Could not open the camera.'));
+      setProofError(errorMessage(caught, 'Could not capture the photo.'));
     } finally {
       setCapturing(false);
     }
+  };
+
+  const retakeProof = () => {
+    if (capturing || busy) return;
+    setProofUri(null);
+    setProofError('');
   };
 
   const closeProof = () => {
@@ -264,7 +275,7 @@ function DeliveryMapModal({
               accessibilityRole="button"
               accessibilityLabel={delivery.paymentMethod === 'cod' ? 'Complete delivery and confirm cash received' : 'Complete delivery'}
               disabled={busy}
-              onPress={() => setProofOpen(true)}
+              onPress={() => void openProofSheet()}
               style={({ pressed }) => [styles.completeButton, pressed && styles.pressed]}>
               {busy ? (
                 <ActivityIndicator color="#FFFFFF" />
@@ -298,14 +309,13 @@ function DeliveryMapModal({
             <View style={styles.proofSheet}>
               <View style={styles.proofHandle} />
               <Text style={styles.proofTitle}>Delivery picture proof</Text>
-              <Text style={styles.proofHint}>Take a new photo showing that the order was delivered. Gallery photos are not allowed.</Text>
+              <Text style={styles.proofHint}>Point the camera at the delivered order and capture a photo. Gallery photos are not allowed.</Text>
 
               {proofUri ? (
                 <Image accessibilityLabel="Delivery proof preview" source={{ uri: proofUri }} contentFit="cover" style={styles.proofImage} />
               ) : (
-                <View style={styles.proofPlaceholder}>
-                  <Text style={styles.proofPlaceholderIcon}>📷</Text>
-                  <Text style={styles.proofPlaceholderText}>No proof photo yet</Text>
+                <View style={styles.proofCameraFrame}>
+                  <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
                 </View>
               )}
 
@@ -313,11 +323,11 @@ function DeliveryMapModal({
 
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={proofUri ? 'Retake delivery proof photo' : 'Take delivery proof photo'}
+                accessibilityLabel={proofUri ? 'Retake delivery proof photo' : 'Capture delivery proof photo'}
                 disabled={capturing || busy}
-                onPress={() => void takeProofPhoto()}
+                onPress={() => void (proofUri ? retakeProof() : takeProofPhoto())}
                 style={({ pressed }) => [styles.cameraButton, (capturing || busy) && styles.buttonDisabled, pressed && styles.pressed]}>
-                {capturing ? <ActivityIndicator color={RED} /> : <Text style={styles.cameraButtonText}>{proofUri ? '📷 Retake Photo' : '📷 Take Photo'}</Text>}
+                {capturing ? <ActivityIndicator color={RED} /> : <Text style={styles.cameraButtonText}>{proofUri ? '📷 Retake Photo' : '📷 Capture Photo'}</Text>}
               </Pressable>
 
               <View style={styles.proofActions}>
@@ -715,6 +725,7 @@ const styles = StyleSheet.create({
   proofTitle: { color: TEXT, fontSize: 20, fontWeight: '900' },
   proofHint: { color: GRAY, fontSize: 12, lineHeight: 17, marginTop: 4, marginBottom: 14 },
   proofImage: { width: '100%', height: 210, borderRadius: 14, backgroundColor: '#F3F4F6' },
+  proofCameraFrame: { width: '100%', height: 210, borderRadius: 14, overflow: 'hidden', backgroundColor: '#000000' },
   proofPlaceholder: { height: 180, borderRadius: 14, borderWidth: 1, borderStyle: 'dashed', borderColor: '#D1D5DB', backgroundColor: '#F9FAFB', alignItems: 'center', justifyContent: 'center' },
   proofPlaceholderIcon: { fontSize: 40 },
   proofPlaceholderText: { color: GRAY, fontSize: 12, fontWeight: '700', marginTop: 7 },

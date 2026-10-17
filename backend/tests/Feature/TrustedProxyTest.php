@@ -15,9 +15,8 @@ use Tests\TestCase;
  * other user out with a 429.
  *
  * The trust list is configured in AppServiceProvider::boot() rather than
- * bootstrap/app.php because that file is evaluated before dotenv loads (and
- * under `php artisan serve` the worker inherits no $_SERVER), which silently
- * collapsed TRUSTED_PROXIES back to the 127.0.0.1 default.
+ * bootstrap/app.php because that file is evaluated before dotenv loads, which
+ * would silently collapse TRUSTED_PROXIES back to the 127.0.0.1 default.
  */
 class TrustedProxyTest extends TestCase
 {

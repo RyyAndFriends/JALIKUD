@@ -96,7 +96,7 @@ graph LR
     subgraph Docker
         NG[Nginx :80 -> host 5173] --> API
         CF -->|direct, bypasses nginx| API
-        API[Laravel API<br/>php artisan serve :8000] --> DB[(PostgreSQL 17<br/>:5432)]
+        API[Laravel API<br/>nginx + php-fpm :8000] --> DB[(PostgreSQL 17<br/>:5432)]
     end
 
     FE -.->|ngrok, host| NG

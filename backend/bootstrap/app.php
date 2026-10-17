@@ -29,11 +29,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->redirectGuestsTo(fn () => '/');
 
         // Proxy trust is configured in AppServiceProvider::boot() instead of here.
-        // This file is evaluated before Laravel boots dotenv, and under
-        // `php artisan serve` the HTTP worker does not inherit $_SERVER, so
-        // env()/$_SERVER/$_ENV/getenv() are all empty here and TRUSTED_PROXIES
-        // would silently collapse to the 127.0.0.1 default — making every
-        // proxied request share one rate-limit bucket.
+        // This file is evaluated before Laravel boots dotenv, and php-fpm workers
+        // do not inherit $_SERVER, so env()/$_SERVER/$_ENV/getenv() are all empty
+        // here and TRUSTED_PROXIES would silently collapse to the 127.0.0.1
+        // default — making every proxied request share one rate-limit bucket.
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
