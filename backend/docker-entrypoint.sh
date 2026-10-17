@@ -12,7 +12,7 @@ fi
 # do not reliably inherit container environment variables.
 # This must run BEFORE the key check below so an injected APP_KEY is
 # written into .env and key:generate is skipped.
-for var in APP_KEY APP_ENV APP_DEBUG APP_URL LOG_LEVEL TRUSTED_PROXIES DB_CONNECTION DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD; do
+for var in APP_KEY APP_ENV APP_DEBUG APP_URL LOG_LEVEL TRUSTED_PROXIES DB_CONNECTION DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD AI_API_KEY AI_BASE_URL AI_MODEL AI_TIMEOUT; do
     # `|| true` matters: printenv exits non-zero for unset vars and `set -e`
     # would abort the container before it ever reaches migrate/serve.
     value=$(printenv "$var" 2>/dev/null || true)
