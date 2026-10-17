@@ -4,6 +4,7 @@ use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -54,4 +55,10 @@ return Application::configure(basePath: dirname(__DIR__))
 
             return null;
         });
-    })->create();
+    })
+    ->withSchedule(function (Schedule $schedule): void {
+        // End-of-day reset: clock out every rider still on duty (forgot to
+        // clock out). 2 AM Manila time, after the store has closed.
+        $schedule->command('riders:auto-clock-out')->dailyAt('02:00')->timezone('Asia/Manila');
+    })
+    ->create();

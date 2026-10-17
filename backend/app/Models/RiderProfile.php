@@ -28,4 +28,15 @@ class RiderProfile extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    /**
+     * Clock out every rider still on duty. Called by the end-of-day scheduled
+     * job so riders who forgot to clock out are reset automatically.
+     */
+    public static function clockOutActiveRiders(): int
+    {
+        return static::query()
+            ->where('is_active', true)
+            ->update(['is_active' => false, 'duty_checked_in_at' => null]);
+    }
 }

@@ -57,4 +57,7 @@ else
     php artisan route:clear >/dev/null 2>&1 || true
 fi
 
+# Run the scheduler so the hourly auto-clock-out (and any future jobs) fire.
+php artisan schedule:work &
+
 exec php artisan serve --host=0.0.0.0 --port=8000

@@ -414,6 +414,25 @@ class StaffRiderTest extends TestCase
             ->assertStatus(404);
     }
 
+    public function test_auto_clock_out_resets_every_rider_still_on_duty(): void
+    {
+        $active = $this->user(User::ROLE_RIDER);
+        $activeProfile = RiderProfile::create([
+            'user_id' => $active->id,
+            'is_active' => true,
+            'duty_checked_in_at' => now(),
+        ]);
+
+        $off = $this->user(User::ROLE_RIDER);
+        RiderProfile::create(['user_id' => $off->id, 'is_active' => false]);
+
+        $this->artisan('riders:auto-clock-out')->assertSuccessful();
+
+        $this->assertFalse($activeProfile->fresh()->is_active);
+        $this->assertNull($activeProfile->fresh()->duty_checked_in_at);
+        $this->assertFalse($off->fresh()->riderProfile->is_active);
+    }
+
     public function test_admin_keeps_full_access(): void
     {
         $admin = $this->user(User::ROLE_ADMIN);
