@@ -1,4 +1,5 @@
 import { apiRequest, uploadRequest } from '@/lib/api';
+import { File } from 'expo-file-system';
 
 export type OrderStatus =
   | 'pending'
@@ -149,11 +150,8 @@ export const riderApi = {
       body: { status, ...(note ? { note } : {}) },
     }).then((response) => response.data),
   completeDelivery: (token: string, id: number, uri: string, note?: string) => {
-    const name = uri.split('/').pop() || `delivery-${id}.jpg`;
-    const extension = name.split('.').pop()?.toLowerCase();
-    const type = extension === 'png' ? 'image/png' : extension === 'webp' ? 'image/webp' : 'image/jpeg';
     const form = new FormData();
-    form.append('image', { uri, name, type } as unknown as Blob);
+    form.append('image', new File(uri));
     if (note) form.append('note', note);
     return uploadRequest<DataResponse<StaffOrder>>(`/rider/deliveries/${id}/complete`, token, form).then((response) => response.data);
   },
