@@ -43,6 +43,13 @@ fi
 # Serve uploaded files: public/storage -> storage/app/public
 php artisan storage:link || true
 
+# The `uploads` volume is mounted over storage/app/public at runtime and may
+# carry root-owned directories from earlier images. Fix ownership so the
+# php-fpm worker (www-data) can write delivery-proof photos and other uploads.
+mkdir -p storage/app/public/uploads/images/delivery-proofs
+chown -R www-data:www-data storage/app/public
+chmod -R 775 storage/app/public
+
 php artisan migrate --force
 
 # In production, cache config/routes for performance. Cache files are written
